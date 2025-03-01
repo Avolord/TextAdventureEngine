@@ -10,6 +10,7 @@ from .parser import StoryParser
 from .descriptors import DescriptorManager
 from .character_manager import CharacterManager
 
+from .template_processor import TemplateProcessor, TemplateResult
 
 class TextAdventureEngine:
     """
@@ -27,6 +28,7 @@ class TextAdventureEngine:
         self.current_story_id = None
         self.stories_directory = None
         self.template_processor = TemplateProcessor()
+        self._scene_cache = {}  # Cache for processed scenes
     
     def set_directories(self, stories_dir: str, templates_dir: str):
         """
@@ -285,50 +287,32 @@ class TextAdventureEngine:
         except Exception as e:
             print(f"Error initializing game: {e}")
             return False
-    
-    def get_current_scene(self) -> Optional[Scene]:
-        """Get the current scene."""
-        if not self.game_state_manager.state:
-            return None
         
-        scene_id = self.game_state_manager.state.current_scene_id
-        return self.scene_manager.get_scene(scene_id)
-    
-    def get_current_scene_text(self) -> str:
-        """Get the processed text of the current scene."""
-        scene = self.get_current_scene()
-        if not scene:
-            return "Error: No current scene."
-        
-        # Process the scene content with template processor
-        processed_text = self.template_processor.process(
-            scene.content, 
-            self.game_state_manager.state,
-            self.descriptor_manager
-        )
-        
-        return processed_text
-    
-    def get_available_choices(self) -> List[Choice]:
+    def get_current_scene_info(self):
         """
-        Get available choices for the current scene.
+        Get processed scene information including text and available choices.
+        This is the single processing point for a scene.
         
         Returns:
-            List of Choice objects
+            TemplateResult: Processed scene information
         """
         scene = self.get_current_scene()
         if not scene:
-            return []
+            return TemplateResult("Error: No current scene.")
         
-        # First, process the scene content to handle conditional choices
-        # This ensures that choices inside conditional blocks are properly handled
-        processed_content = self.template_processor.process(
-            scene.content,
-            self.game_state_manager.state,
-            self.descriptor_manager
-        )
+        # Check if scene is already in cache
+        scene_id = scene.scene_id
+        if scene_id in self._scene_cache:
+            # Get cached result
+            return self._scene_cache[scene_id]
         
-        # Now process scene's regular choices
+        # Create context for template processing
+        context = self._create_template_context()
+        
+        # Process the scene content once to get both text and choices
+        result = self.template_processor.process(scene.content, context)
+        
+        # Process regular scene choices
         available_choices = []
         for choice in scene.choices:
             # Skip if choice has a condition that evaluates to False
@@ -342,11 +326,7 @@ class TextAdventureEngine:
                     continue
             
             # Process template tags in choice text
-            processed_text = self.template_processor.process(
-                choice.text,
-                self.game_state_manager.state,
-                self.descriptor_manager
-            )
+            processed_text = self.template_processor.process_text(choice.text, context)
             
             # Create a new choice with processed text
             processed_choice = Choice(
@@ -358,13 +338,76 @@ class TextAdventureEngine:
             )
             
             available_choices.append(processed_choice)
-    
-        # Parse any choices that were defined inside conditional blocks in the scene content
-        conditional_choices = self._extract_conditional_choices(processed_content)
-        if conditional_choices:
-            available_choices.extend(conditional_choices)
         
-        return available_choices
+        # Add choices from conditional blocks
+        template_choices = []
+        for choice_data in result.choices:
+            choice = Choice(
+                choice_data.text,
+                choice_data.action_id,
+                choice_data.next_scene,
+                None,
+                choice_data.next_story
+            )
+            template_choices.append(choice)
+        
+        # Create a combined result
+        combined_result = TemplateResult(result.text, available_choices + template_choices)
+        
+        # Cache the result
+        self._scene_cache[scene_id] = combined_result
+        
+        return combined_result
+    
+    def _create_template_context(self):
+        """
+        Create a context dictionary for template processing.
+        
+        Returns:
+            dict: Context with game state variables
+        """
+        game_state = self.game_state_manager.state
+        
+        # Create basic context
+        context = {
+            'player': game_state.player,
+            'game': game_state,
+            'var': lambda name, default=None: game_state.get_variable(name, default),
+            'describe': lambda char_name: self.descriptor_manager.describe_character(
+                game_state.get_character(char_name)
+            ),
+            'has_completed': lambda event: game_state.is_event_completed(event),
+        }
+        
+        # Add NPCs to context
+        for npc_name, npc in game_state.npcs.items():
+            safe_name = ''.join(c for c in npc_name if c.isalnum())
+            context[safe_name] = npc
+        
+        return context
+    
+    def get_current_scene(self) -> Optional[Scene]:
+        """Get the current scene."""
+        if not self.game_state_manager.state:
+            return None
+        
+        scene_id = self.game_state_manager.state.current_scene_id
+        return self.scene_manager.get_scene(scene_id)
+    
+    def get_current_scene_text(self) -> str:
+        """Get the processed text of the current scene."""
+        result = self.get_current_scene_info()
+        return result.text
+    
+    def get_available_choices(self) -> List[Choice]:
+        """
+        Get available choices for the current scene.
+        
+        Returns:
+            List of Choice objects
+        """
+        result = self.get_current_scene_info()
+        return result.choices
     
     def get_choice_texts(self) -> List[str]:
         """
@@ -459,6 +502,9 @@ class TextAdventureEngine:
         # Get the selected choice
         choice = available_choices[choice_index]
         
+        # Clear the scene cache when making a choice
+        self._scene_cache = {}
+        
         # Check for story transition
         if choice.next_story:
             if self.transition_to_story(choice.next_story, choice.next_scene):
@@ -478,7 +524,7 @@ class TextAdventureEngine:
             
             # If no result text was returned, show the new scene text
             if not result:
-                result = self.get_current_scene_text()
+                result = ""#self.get_current_scene_text()
         
         return result or "You made your choice."
     
@@ -513,189 +559,3 @@ class TextAdventureEngine:
         # Unknown command
         else:
             return f"Unknown command: {cmd}"
-
-
-class TemplateProcessor:
-    """
-    Processes template tags in text content.
-    Works with unified dynamic stats system.
-    """
-    def process(self, text: str, game_state, descriptor_manager) -> str:
-        """
-        Process template tags in text.
-        
-        Supports:
-        - Variable substitution: {{variable}}
-        - Conditional blocks: {% if condition %}...{% else %}...{% endif %}
-        - Character descriptions: {{describe:character_name}}
-        
-        Args:
-            text: Text to process
-            game_state: Current game state
-            descriptor_manager: Descriptor manager for character descriptions
-        
-        Returns:
-            str: Processed text
-        """
-        if not text:
-            return ""
-        
-        # Process conditional blocks first (important for nested conditionals)
-        text = self._process_conditionals(text, game_state)
-        
-        # Process variable substitutions
-        text = self._process_variables(text, game_state, descriptor_manager)
-        
-        # Filter out choice lines
-        #text = self._filter_choice_lines(text)
-        
-        return text
-    
-    def _filter_choice_lines(self, text: str) -> str:
-        """Filter out lines that represent choices."""
-        filtered_lines = []
-        for line in text.split('\n'):
-            # Skip choice lines (those starting with '*')
-            if line.strip().startswith('*'):
-                continue
-            filtered_lines.append(line)
-        
-        return '\n'.join(filtered_lines)
-    
-    def _process_variables(self, text: str, game_state, descriptor_manager) -> str:
-        """Process variable substitutions with format specifiers."""
-        # Pattern matches {{expression:format_spec}}
-        pattern = r'\{\{(.*?)(?::([^}]+))?\}\}'
-        
-        def replace_var(match):
-            var_expr = match.group(1).strip()
-            format_spec = match.group(2)  # This will be None if no format was specified
-            
-            # Check for descriptor tags
-            if var_expr.startswith('describe:'):
-                char_name = var_expr[9:].strip()
-                character = game_state.get_character(char_name)
-                if character:
-                    return descriptor_manager.describe_character(character)
-                return f"[Unknown character: {char_name}]"
-            
-            try:
-                # Create evaluation context with safe attribute access
-                context = {
-                    'player': game_state.player,
-                    'game': game_state,
-                    'var': lambda name, default=None: game_state.get_variable(name, default),
-                    'describe': lambda char_name: descriptor_manager.describe_character(
-                        game_state.get_character(char_name)
-                    ),
-                    'has_completed': lambda event: game_state.is_event_completed(event),
-                }
-                
-                # Add NPCs to context
-                for npc_name, npc in game_state.npcs.items():
-                    safe_name = ''.join(c for c in npc_name if c.isalnum())
-                    context[safe_name] = npc
-                
-                # Evaluate the expression
-                result = eval(var_expr, {"__builtins__": {}}, context)
-                
-                # Apply format specifier if provided
-                if format_spec:
-                    try:
-                        # Only apply formatting if it makes sense
-                        if isinstance(result, (int, float)):
-                            format_str = f"{{:{format_spec}}}"
-                            return format_str.format(result)
-                        else:
-                            # For non-numeric values, just convert to string
-                            return str(result)
-                    except ValueError as e:
-                        # If formatting fails, just return as string
-                        print(f"Format error ({format_spec}) for {result}: {e}")
-                        return str(result)
-                
-                return str(result)
-            except Exception as e:
-                print(f"Error evaluating expression '{var_expr}': {e}")
-                return f"{{Error: {e}}}"
-        
-        return re.sub(pattern, replace_var, text)
-    
-    def _process_conditionals(self, text: str, game_state) -> str:
-        """Process conditional blocks."""
-        # Fixed pattern to properly match conditional blocks
-        pattern = r'\{%\s*if\s+(.*?)\s*%\}(.*?)(?:\{%\s*else\s*%\}(.*?))?\{%\s*endif\s*%\}'
-        
-        def replace_conditional(match):
-            condition, if_content, else_content = match.groups()
-            else_content = else_content or ''
-            
-            try:
-                # Create evaluation context
-                context = {
-                    'player': game_state.player,
-                    'game': game_state,
-                    'var': lambda name, default=None: game_state.get_variable(name, default),
-                    'has_completed': lambda event: game_state.is_event_completed(event),
-                }
-                
-                # Add NPCs to context
-                for npc_name, npc in game_state.npcs.items():
-                    safe_name = ''.join(c for c in npc_name if c.isalnum())
-                    context[safe_name] = npc
-                
-                # Handle None safety for common conditions
-                if "is None" not in condition and "is not None" not in condition:
-                    # This helps avoid None comparison errors
-                    condition = self._make_condition_null_safe(condition)
-                
-                # Evaluate the condition
-                if eval(condition, {"__builtins__": {}}, context):
-                    return if_content
-                else:
-                    return else_content
-            except Exception as e:
-                print(f"Error evaluating condition '{condition}': {e}")
-                return f"{{Error in condition: {e}}}"
-        
-        # Process conditionals recursively to handle nested conditionals
-        # Use re.DOTALL to match across multiple lines
-        prev_text = ""
-        while prev_text != text:
-            prev_text = text
-            text = re.sub(pattern, replace_conditional, text, flags=re.DOTALL)
-        
-        return text
-    
-    def _make_condition_null_safe(self, condition: str) -> str:
-        """
-        Make a condition null-safe by adding existence checks.
-        This helps prevent errors when comparing to None values.
-        
-        Args:
-            condition: Original condition string
-            
-        Returns:
-            Modified condition string
-        """
-        # This is a simple approach - in a real system you might want to use
-        # more sophisticated parsing to handle complex conditions
-        
-        # Handle common attribute access patterns to make them null-safe
-        patterns = [
-            # player.stats.X > Y becomes (player.stats.X or 0) > Y
-            (r'(player\.stats\.\w+)\s*(==|!=|>|<|>=|<=)\s*(\d+(?:\.\d+)?)',
-             r'(\1 or 0) \2 \3'),
-            
-            # X > player.stats.Y becomes X > (player.stats.Y or 0)
-            (r'(\d+(?:\.\d+)?)\s*(==|!=|>|<|>=|<=)\s*(player\.stats\.\w+)',
-             r'\1 \2 (\3 or 0)'),
-            
-            # Similar patterns for NPCs if needed
-        ]
-        
-        # Apply each pattern
-        for pattern, replacement in patterns:
-            condition = re.sub(pattern, replacement, condition)
-        
-        return condition

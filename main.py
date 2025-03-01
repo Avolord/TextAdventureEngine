@@ -8,6 +8,7 @@ import argparse
 from engine.engine import TextAdventureEngine
 from engine.interface import InterfaceManager
 from frontends.text_interface import create_text_interface
+from frontends.rich_interface import create_rich_interface
 
 # Import other frontends as they become available
 # from text_adventure.frontends.gui_interface import create_gui_interface
@@ -20,7 +21,7 @@ def main():
     parser.add_argument("story_file", nargs="?", help="Path to the story file (.tadv)")
     parser.add_argument("--player", "-p", help="Player character name")
     parser.add_argument("--list-stories", "-l", action="store_true", help="List available stories")
-    parser.add_argument("--interface", "-i", choices=["text", "gui"], default="text", 
+    parser.add_argument("--interface", "-i", choices=["text", "gui", "rich"], default="text", 
                       help="Interface to use (default: text)")
     
     args = parser.parse_args()
@@ -40,6 +41,8 @@ def main():
     # Create interface based on argument
     if args.interface == "text":
         interface = create_text_interface()
+    elif args.interface == "rich":
+        interface = create_rich_interface()
     elif args.interface == "gui":
         # When GUI is implemented
         # interface = create_gui_interface()
