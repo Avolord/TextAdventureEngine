@@ -16,6 +16,7 @@ class TextInterface(GameInterface):
         self.width = 80  # Default terminal width
         self.engine = None
         self.running = False
+        self.current_scene_id = None  # Track current scene to avoid duplication
         
         # Try to get actual terminal size
         try:
@@ -50,7 +51,8 @@ class TextInterface(GameInterface):
         Args:
             message: Message text to display
         """
-        print(message)
+        if message:  # Only display if there's a message
+            print(message)
     
     def display_scene(self, scene_text: str) -> None:
         """
@@ -222,19 +224,24 @@ class TextInterface(GameInterface):
         
         # Display welcome message
         self.display_title(f"Welcome to {engine.title}")
+        self.clear_screen()
         
-        while self.running:
-            # Display current scene
+        # Initialize scene tracking
+        current_scene = engine.get_current_scene()
+        if current_scene:
+            self.current_scene_id = current_scene.scene_id
+            
+            # Display initial scene
             scene_text = engine.get_current_scene_text()
             self.display_scene(scene_text)
-            
+        
+        while self.running:
             # Get available choices
             choices = engine.get_choice_texts()
             
             # If no choices, assume end of game
             if not choices:
                 print("\nTHE END")
-                
                 self.running = False
                 break
             
@@ -250,11 +257,31 @@ class TextInterface(GameInterface):
                 self.running = False
                 break
             
-            self.clear_screen()
+            # Get current scene ID before handling choice
+            old_scene_id = self.current_scene_id
             
-            # Process choice
+            # Process choice and clear screen
+            self.clear_screen()
             result = engine.handle_choice(choice_index)
             self.display_message(result)
+            
+            # Get new scene ID and update tracking
+            current_scene = engine.get_current_scene()
+            if current_scene:
+                new_scene_id = current_scene.scene_id
+                self.current_scene_id = new_scene_id
+                
+                # Only display scene text if we've moved to a new scene
+                if new_scene_id != old_scene_id:
+                    scene_text = engine.get_current_scene_text()
+                    # self.clear_screen()
+                    self.display_scene(scene_text)
+                else:
+                    # Display result from choice if not a scene transition
+                    self.display_message(result)
+            else:
+                # Just display the result
+                self.display_message(result)
         
         # Clean up
         self.shutdown()
