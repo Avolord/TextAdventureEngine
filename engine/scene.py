@@ -21,12 +21,15 @@ class Choice:
 class Scene:
     """
     Represents a scene in the game story.
+    Now with support for automatic transitions.
     """
     def __init__(self, scene_id: str, title: str = "", content: str = ""):
         self.scene_id = scene_id
         self.title = title
         self.content = content
         self.choices = []  # List of Choice objects
+        self.auto_transition = None  # ID of scene to transition to automatically
+        self.transition_text = None  # Text to show during automatic transition
     
     def add_choice(self, choice: Choice):
         """Add a choice to this scene."""
@@ -39,6 +42,17 @@ class Scene:
         if next_story:
             choice.next_story = next_story
         self.choices.append(choice)
+    
+    def set_auto_transition(self, next_scene: str, transition_text: str = None):
+        """
+        Set an automatic transition for this scene.
+        
+        Args:
+            next_scene: ID of the scene to transition to
+            transition_text: Optional text to show during transition
+        """
+        self.auto_transition = next_scene
+        self.transition_text = transition_text
 
 
 class SceneManager:

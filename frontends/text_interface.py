@@ -41,6 +41,10 @@ class TextInterface(GameInterface):
             scene_text: Scene text to display
         """
         print("\n" + scene_text + "\n")
+        
+    def _display_auto_transition_prompt(self) -> None:
+        """Display prompt for scenes with auto-transition."""
+        print("\nPress enter to continue or enter a command...")
     
     def _display_choices(self, choices: List[str]) -> None:
         """
@@ -49,6 +53,11 @@ class TextInterface(GameInterface):
         Args:
             choices: List of choice texts
         """
+        # If no choices but has auto-transition, show the continue prompt
+        if not choices and self.engine.has_auto_transition():
+            self._display_auto_transition_prompt()
+            return
+            
         if not choices:
             print("No choices available.")
             return

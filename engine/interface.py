@@ -342,7 +342,7 @@ class GameInterface(ABC):
         pass
     
     def game_loop(self) -> None:
-        """Run the main game loop."""
+        """Run the main game loop with support for auto-transitions."""
         if not self.engine:
             self._display_message("Error: No game engine initialized.")
             return
@@ -355,7 +355,45 @@ class GameInterface(ABC):
         self.refresh_display()
         
         while self.running:
-            # Get player choice (handling special commands)
+            # Get available choices
+            choices = self.engine.get_choice_texts()
+            
+            # Check for auto-transition
+            has_auto_transition = self.engine.has_auto_transition()
+            
+            # If no choices and no auto-transition, it's the end of the game
+            if not choices and not has_auto_transition:
+                self._display_message("THE END")
+                self.running = False
+                break
+            
+            # If no choices but has auto-transition, wait for enter or command
+            if not choices and has_auto_transition:
+                # This is the press-enter-to-continue functionality
+                user_input = self._get_user_input("Press enter to continue or enter a command...").strip()
+                
+                if not user_input:
+                    # User pressed enter, perform the auto-transition
+                    self._clear_screen()
+                    transition_text = self.engine.perform_auto_transition()
+                    if transition_text:
+                        self._display_message(transition_text)
+                        self._wait_for_input()
+                    self.refresh_display()
+                    continue
+                
+                # User entered a command, try to handle it
+                if self.handle_special_command(user_input):
+                    # If display needs refresh after command
+                    if self.display_needs_refresh:
+                        self.refresh_display()
+                    continue
+                
+                # Invalid command, show message and continue
+                self._display_message(f"Unknown command: {user_input}")
+                continue
+            
+            # Regular case with choices - get player choice
             choice_index = self.get_choice()
             
             # Check for quit or invalid choice

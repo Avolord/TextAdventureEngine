@@ -72,6 +72,11 @@ All available via `player.stats.*`, for example: `player.stats.health`
 
 ### Description Functions
 - `describe(character_name)` - Get a formatted description of a character
+- `describe(character_name, body_type, energy_type)` - Get description with specific descriptor types
+- `get_body_desc(character_name, descriptor_type=None)` - Get just the body description
+- `get_energy_desc(character_name, descriptor_type=None)` - Get just the energy description
+- `set_descriptor(character_name, descriptor_type, descriptor_name)` - Set which descriptor to use
+- `list_descriptors(descriptor_type=None)` - List all available descriptors
 
 ## Special Template Tags
 
@@ -101,6 +106,14 @@ Examples:
 Example:
 - `{{describe:Coach Alex}}`
 
+### Enhanced Character Description
+```
+{{describe:character_name:body_descriptor:energy_descriptor}}
+```
+Examples:
+- `{{describe:player:fitness:detailed}}` - Use fitness body descriptor and detailed energy
+- `{{describe:Coach Alex:athletic:simple}}` - Use athletic body and simple energy
+
 ### Conditional Blocks
 ```
 {% if condition %}
@@ -110,6 +123,44 @@ Example:
 {% else %}
   fallback content
 {% endif %}
+```
+
+## Script Functions for Descriptor Management
+
+### Registering Custom Descriptors
+```python
+def athletic_body_descriptor(stats):
+    """Custom descriptor for athletic characters."""
+    if stats.fitness_level > 80:
+        return "athletic with well-defined muscles"
+    else:
+        return "athletic"
+
+# Register the custom descriptor
+register_body_descriptor("athletic", athletic_body_descriptor)
+```
+
+### Setting Character Descriptors
+```python
+def change_character_description(game):
+    """Action to change a character's descriptor."""
+    set_character_descriptor(game.player.name, "body", "athletic")
+    return "Your description style has changed."
+
+register_action("change_description", change_character_description)
+```
+
+### Listing Available Descriptors
+```python
+def show_descriptors(game):
+    """Show all available descriptors."""
+    all_descriptors = list_descriptors()
+    body_descriptors = list_descriptors('body')
+    energy_descriptors = list_descriptors('energy')
+    # Use these in your function logic
+    return "Descriptors listed."
+
+register_action("show_descriptors", show_descriptors)
 ```
 
 ## Context Variables for Expressions and Conditions
@@ -123,6 +174,30 @@ When evaluating expressions (in `{{...}}`) or conditions (in `{% if ... %}`):
 
 2. For `if` conditions in choices, additionally:
    - All player stats as direct variables (e.g., `health > 50` instead of `player.stats.health > 50`)
+
+## Built-in Descriptor Types
+
+### Body Descriptors
+- `default` - Based on BMI and muscle mass
+- `fitness` - Focused on fitness level and muscle definition
+- `simple` - Minimal description based on build
+
+### Energy Descriptors
+- `default` - Basic energy levels (tired, energetic, etc.)
+- `detailed` - More detailed with motivation consideration
+- `simple` - Simplified (tired, alert, energetic)
+
+## Save and Undo System
+
+### Save Commands
+- `save [name]` - Save the current game state
+- `load [name]` - Load a saved game
+- `saves` or `list` - List all saved games
+- `delete [name]` - Delete a saved game
+
+### Undo Functionality
+- `undo` - Undo the last action
+- Can also be used as an action: `* Undo last choice -> undo`
 
 ## Scene Variables
 

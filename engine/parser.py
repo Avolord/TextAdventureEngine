@@ -236,8 +236,23 @@ class StoryParser:
         current_scene = None
         scene_buffer = []
         inside_conditional = 0  # Track conditional nesting level
+        auto_transition = None
+        transition_text = None
         
         for line_num, line in enumerate(content, 1):
+            # Check for auto-transition directive
+            if line.strip().startswith("@goto:"):
+                # Format: @goto:scene_id [transition text]
+                directive = line.strip()[6:].strip()
+                if " " in directive:
+                    scene_id, text = directive.split(" ", 1)
+                    auto_transition = scene_id.strip()
+                    transition_text = text.strip()
+                else:
+                    auto_transition = directive.strip()
+                    transition_text = None
+                continue
+            
             # Check for conditional blocks
             if '{%' in line and '%}' in line:
                 if 'if ' in line or 'elif ' in line:
@@ -250,6 +265,13 @@ class StoryParser:
                 # Process previous scene if exists
                 if current_scene and scene_buffer:
                     current_scene.content = '\n'.join(scene_buffer)
+                    
+                    # Set auto-transition if one was specified
+                    if auto_transition:
+                        current_scene.set_auto_transition(auto_transition, transition_text)
+                        auto_transition = None
+                        transition_text = None
+                    
                     scene_buffer = []
                 
                 # Parse scene header
@@ -360,6 +382,10 @@ class StoryParser:
         # Process the last scene
         if current_scene and scene_buffer:
             current_scene.content = '\n'.join(scene_buffer)
+            
+            # Set auto-transition if one was specified
+            if auto_transition:
+                current_scene.set_auto_transition(auto_transition, transition_text)
     
     def get_character_data(self) -> Dict[str, Dict[str, Any]]:
         """Get the parsed character data."""

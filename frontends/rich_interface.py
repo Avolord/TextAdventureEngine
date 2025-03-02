@@ -108,6 +108,10 @@ class RichInterface(GameInterface):
         formatted_stats += "[/stats]"
         return formatted_stats
     
+    def _display_auto_transition_prompt(self) -> None:
+        """Display styled prompt for scenes with auto-transition."""
+        self.console.print("\n[command]Press enter to continue or enter a command...[/command]")
+
     def _display_choices(self, choices: List[str]) -> None:
         """
         Display choices to the user using a Rich Table.
@@ -115,6 +119,11 @@ class RichInterface(GameInterface):
         Args:
             choices: List of choice texts
         """
+        # If no choices but has auto-transition, show the continue prompt
+        if not choices and self.engine.has_auto_transition():
+            self._display_auto_transition_prompt()
+            return
+        
         if not choices:
             self.console.print("[warning]No choices available.[/warning]")
             return

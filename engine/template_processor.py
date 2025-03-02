@@ -1,5 +1,5 @@
 import re
-from typing import List, Dict, Any, Optional, NamedTuple
+from typing import List, Dict, Any, Optional, NamedTuple, Tuple
 
 class ChoiceData:
     """Data extracted from a choice line in a template."""
@@ -11,9 +11,11 @@ class ChoiceData:
 
 class TemplateResult:
     """Result of template processing containing different types of processed content."""
-    def __init__(self, text="", choices=None):
+    def __init__(self, text="", choices=None, auto_transition=None, transition_text=None):
         self.text = text  # The main text content
         self.choices = choices or []  # Extracted choices
+        self.auto_transition = auto_transition  # Next scene ID for auto-transition
+        self.transition_text = transition_text  # Text for auto-transition
 
 class TemplateProcessor:
     """
@@ -29,10 +31,14 @@ class TemplateProcessor:
             context: Context dictionary with variables for evaluation
             
         Returns:
-            TemplateResult: Processed text and extracted choices
+            TemplateResult: Processed text and extracted info
         """
         if not text:
             return TemplateResult()
+        
+        # Reset auto-transition info
+        self.auto_transition = None
+        self.transition_text = None
         
         # Process conditional blocks first (important for nested conditionals)
         processed_text = self._process_conditionals(text, context)
@@ -46,7 +52,9 @@ class TemplateProcessor:
         # Filter out choice lines from the display text
         display_text = self._filter_choice_lines(processed_text)
         
-        return TemplateResult(display_text, choices)
+        # Create result with auto-transition info
+        auto_transition, transition_text = self.get_auto_transition()
+        return TemplateResult(display_text, choices, auto_transition, transition_text)
     
     def process_text(self, text: str, context: Dict[str, Any]) -> str:
         """
@@ -181,7 +189,7 @@ class TemplateProcessor:
         return re.sub(pattern, replace_var, text)
     
     def _process_conditionals(self, text: str, context: Dict[str, Any]) -> str:
-        """Process conditional blocks with if/elif/else support."""
+        """Process conditional blocks with if/elif/else support and scene transitions."""
         # Find all complete if-elif-else-endif blocks
         pattern = r'\{%\s*if\s+(.+?)\s*%\}(.*?)(?:\{%\s*elif\s+.*?%\}.*?)*(?:\{%\s*else\s*%\}.*?)?\{%\s*endif\s*%\}'
         
@@ -196,7 +204,27 @@ class TemplateProcessor:
             
             # Replace the entire conditional block with its result
             text = text.replace(full_block, result)
-            
+        
+        # Extract auto-transition directives
+        auto_transition = None
+        transition_text = None
+        
+        # Look for @goto directive anywhere in the text
+        goto_pattern = r'@goto:(\w+)(?:\s+(.+?))?$'
+        for line in text.split('\n'):
+            line = line.strip()
+            if line.startswith('@goto:'):
+                match = re.search(goto_pattern, line)
+                if match:
+                    auto_transition = match.group(1)
+                    transition_text = match.group(2) if match.group(2) else None
+                    # Remove the directive line from text
+                    text = text.replace(line, '', 1)
+        
+        # Store auto-transition info in the template processor for later retrieval
+        self.auto_transition = auto_transition
+        self.transition_text = transition_text
+                
         return text
     
     def _evaluate_conditional_block(self, block: str, context: Dict[str, Any]) -> str:
@@ -279,3 +307,12 @@ class TemplateProcessor:
             condition = re.sub(pattern, replacement, condition)
         
         return condition
+    
+    def get_auto_transition(self) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Get auto-transition information extracted during processing.
+        
+        Returns:
+            Tuple of (next_scene_id, transition_text)
+        """
+        return getattr(self, 'auto_transition', None), getattr(self, 'transition_text', None)

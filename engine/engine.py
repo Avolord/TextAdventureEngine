@@ -158,10 +158,14 @@ class TextAdventureEngine:
         namespace = {
             'game': self,  # Allow functions to access the game engine
             'register_action': self.game_state_manager.register_action,
+            'goto_scene': lambda scene_id: self.change_scene(scene_id, False),
         }
         
         # Register descriptor-related functions
         self._register_descriptor_functions(namespace)
+        
+        # Register built-in action for changing scenes
+        namespace['register_action']('goto', self._action_goto_scene)
         
         try:
             # Execute the code within this namespace
@@ -487,11 +491,12 @@ class TextAdventureEngine:
         """
         success, message = self.save_system.undo()
         return message
+    
         
     def get_current_scene_info(self):
         """
         Get processed scene information including text and available choices.
-        This is the single processing point for a scene.
+        Now also includes auto-transition information from templates.
         
         Returns:
             TemplateResult: Processed scene information
@@ -551,8 +556,22 @@ class TextAdventureEngine:
             )
             template_choices.append(choice)
         
-        # Create a combined result
-        combined_result = TemplateResult(result.text, available_choices + template_choices)
+        # Check for auto-transition
+        auto_transition = result.auto_transition
+        transition_text = result.transition_text
+        
+        # If no auto-transition from template, check scene's built-in auto-transition
+        if not auto_transition and scene.auto_transition:
+            auto_transition = scene.auto_transition
+            transition_text = scene.transition_text
+        
+        # Create a combined result with auto-transition information
+        combined_result = TemplateResult(
+            result.text, 
+            available_choices + template_choices,
+            auto_transition,
+            transition_text
+        )
         
         # Cache the result
         self._scene_cache[scene_id] = combined_result
@@ -827,3 +846,75 @@ class TextAdventureEngine:
         # Unknown command
         else:
             return f"Unknown command: {cmd}"
+        
+    # Add a built-in action for scene transitions
+    def _action_goto_scene(self, game_state):
+        """
+        Action to transition to a different scene.
+        
+        Args:
+            game_state: Current game state
+            
+        Returns:
+            str: Always empty string to allow scene display
+        """
+        # This is a special action that returns no text
+        # The actual scene change happens in handle_choice
+        return ""
+    
+    def change_scene(self, scene_id: str, show_text: bool = True) -> str:
+        """
+        Change to a new scene and optionally return its text.
+        
+        Args:
+            scene_id: ID of the scene to change to
+            show_text: Whether to return the scene text
+            
+        Returns:
+            Scene text or empty string
+        """
+        # Change scene in the game state
+        self.game_state_manager.change_scene(scene_id)
+        
+        # Clear the scene cache
+        self._scene_cache = {}
+        
+        # Return the new scene text if requested
+        if show_text:
+            return self.get_current_scene_text()
+        return ""
+
+    def has_auto_transition(self) -> bool:
+        """
+        Check if the current scene has an auto-transition.
+        
+        Returns:
+            True if the scene has an auto-transition
+        """
+        scene = self.get_current_scene()
+        return scene is not None and scene.auto_transition is not None
+
+    def get_auto_transition(self) -> Tuple[str, Optional[str]]:
+        """
+        Get the auto-transition information for the current scene.
+        
+        Returns:
+            Tuple of (next_scene_id, transition_text)
+        """
+        scene = self.get_current_scene()
+        if scene and scene.auto_transition:
+            return scene.auto_transition, scene.transition_text
+        return None, None
+
+    def perform_auto_transition(self) -> str:
+        """
+        Perform the auto-transition for the current scene.
+        
+        Returns:
+            Transition text or empty string
+        """
+        next_scene, text = self.get_auto_transition()
+        if next_scene:
+            self.change_scene(next_scene, False)
+            return text or f"Continuing to next scene..."
+        return ""
