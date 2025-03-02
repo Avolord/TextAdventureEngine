@@ -1,7 +1,7 @@
 # text_interface.py - Text-based frontend implementation
 import os
 import sys
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Dict, Any
 
 from engine.interface import GameInterface
 
@@ -13,10 +13,8 @@ class TextInterface(GameInterface):
     """
     
     def __init__(self):
+        super().__init__()
         self.width = 80  # Default terminal width
-        self.engine = None
-        self.running = False
-        self.current_scene_id = None  # Track current scene to avoid duplication
         
         # Try to get actual terminal size
         try:
@@ -25,26 +23,7 @@ class TextInterface(GameInterface):
         except (AttributeError, OSError):
             pass  # Stick with default width
     
-    def initialize(self, engine) -> bool:
-        """
-        Initialize the text interface.
-        
-        Args:
-            engine: Game engine instance
-            
-        Returns:
-            bool: True if initialization was successful
-        """
-        self.engine = engine
-        self.running = True
-        return True
-    
-    def shutdown(self) -> None:
-        """Clean up resources when shutting down the interface."""
-        self.running = False
-        print("\nThank you for playing!\n")
-    
-    def display_message(self, message: str) -> None:
+    def _display_message(self, message: str) -> None:
         """
         Display a message to the user.
         
@@ -54,7 +33,7 @@ class TextInterface(GameInterface):
         if message:  # Only display if there's a message
             print(message)
     
-    def display_scene(self, scene_text: str) -> None:
+    def _display_scene(self, scene_text: str) -> None:
         """
         Display a scene to the user.
         
@@ -63,7 +42,7 @@ class TextInterface(GameInterface):
         """
         print("\n" + scene_text + "\n")
     
-    def display_choices(self, choices: List[str]) -> None:
+    def _display_choices(self, choices: List[str]) -> None:
         """
         Display choices to the user.
         
@@ -74,13 +53,13 @@ class TextInterface(GameInterface):
             print("No choices available.")
             return
         
-        print("Available choices:")
+        print("\nAvailable choices:")
         for i, choice in enumerate(choices, 1):
             print(f"{i}. {choice}")
         
-        print("\nSpecial commands: save, load, saves, restart, help, quit")
+        print("\nSpecial commands: help, undo, save, load, saves, delete, restart, quit")
     
-    def get_user_input(self, prompt: str = "") -> str:
+    def _get_user_input(self, prompt: str = "") -> str:
         """
         Get input from the user.
         
@@ -92,84 +71,9 @@ class TextInterface(GameInterface):
         """
         if prompt:
             return input(f"{prompt} ")
-        return input("> ")
+        return input("\n> ")
     
-    def get_choice(self, choices: List[str]) -> int:
-        """
-        Get a choice from the user.
-        
-        Args:
-            choices: List of choice texts
-            
-        Returns:
-            Index of chosen choice (-1 for invalid/quit)
-        """
-        if not choices:
-            return -1
-        
-        self.display_choices(choices)
-        
-        while True:
-            user_input = self.get_user_input("\nWhat will you do?").strip()
-            
-            # Check for special commands
-            if user_input.lower() in ["quit", "exit", "q"]:
-                return -1
-            
-            # Check for other special commands
-            if user_input.lower() in ["save", "load", "saves", "list", "help", "restart"] or \
-               user_input.lower().startswith(("save ", "load ")):
-                result = self.engine.process_text_command(user_input)
-                print("\n" + result + "\n")
-                self.display_choices(choices)
-                continue
-            
-            # Try to parse as a choice number
-            try:
-                choice_num = int(user_input)
-                if 1 <= choice_num <= len(choices):
-                    return choice_num - 1
-                else:
-                    print(f"Please enter a number between 1 and {len(choices)}.")
-            except ValueError:
-                print("Please enter a number or command.")
-    
-    def select_from_list(self, items: List[str], prompt: str) -> int:
-        """
-        Let the user select an item from a list.
-        
-        Args:
-            items: List of items
-            prompt: Prompt to display
-            
-        Returns:
-            Index of selected item (-1 for invalid/cancel)
-        """
-        if not items:
-            return -1
-        
-        print(prompt)
-        for i, item in enumerate(items, 1):
-            print(f"{i}. {item}")
-        
-        while True:
-            try:
-                user_input = self.get_user_input("Enter your choice")
-                
-                # Check for quit/cancel
-                if user_input.lower() in ["quit", "exit", "cancel", "q"]:
-                    return -1
-                
-                # Parse as number
-                choice_num = int(user_input)
-                if 1 <= choice_num <= len(items):
-                    return choice_num - 1
-                else:
-                    print(f"Please enter a number between 1 and {len(items)}.")
-            except ValueError:
-                print("Please enter a number.")
-    
-    def confirm(self, message: str) -> bool:
+    def _confirm(self, message: str) -> bool:
         """
         Ask the user for confirmation.
         
@@ -181,7 +85,7 @@ class TextInterface(GameInterface):
         """
         print(message)
         while True:
-            response = self.get_user_input("(y/n)").lower()
+            response = self._get_user_input("(y/n)").lower()
             if response in ["y", "yes"]:
                 return True
             elif response in ["n", "no"]:
@@ -189,7 +93,7 @@ class TextInterface(GameInterface):
             else:
                 print("Please enter 'y' or 'n'.")
     
-    def display_title(self, title: str) -> None:
+    def _display_title(self, title: str) -> None:
         """
         Display a title.
         
@@ -204,7 +108,7 @@ class TextInterface(GameInterface):
         print(" " * padding + title)
         print(border + "\n")
     
-    def clear_screen(self) -> None:
+    def _clear_screen(self) -> None:
         """Clear the screen."""
         # Try platform-specific clear commands
         if sys.platform == "win32":
@@ -212,79 +116,31 @@ class TextInterface(GameInterface):
         else:
             os.system("clear")
     
-    def game_loop(self, engine) -> None:
+    def _display_saves(self, saves: List[Dict[str, Any]]) -> None:
         """
-        Run the main game loop.
+        Display a list of saves.
         
         Args:
-            engine: Game engine instance
+            saves: List of save info dictionaries
         """
-        self.engine = engine
-        self.running = True
+        if not saves:
+            print("No saved games found.")
+            return
         
-        # Display welcome message
-        self.display_title(f"Welcome to {engine.title}")
-        self.clear_screen()
+        print("\nAvailable saves:")
+        for i, save in enumerate(saves, 1):
+            print(f"{i}. {save['name']} - {save['title']} ({save['timestamp']})")
         
-        # Initialize scene tracking
-        current_scene = engine.get_current_scene()
-        if current_scene:
-            self.current_scene_id = current_scene.scene_id
-            
-            # Display initial scene
-            scene_text = engine.get_current_scene_text()
-            self.display_scene(scene_text)
+        print("\nUse 'load [name]' to load a specific save.")
+    
+    def _wait_for_input(self, prompt: str = "Press enter to continue...") -> None:
+        """
+        Wait for the user to press enter to continue.
         
-        while self.running:
-            # Get available choices
-            choices = engine.get_choice_texts()
-            
-            # If no choices, assume end of game
-            if not choices:
-                print("\nTHE END")
-                self.running = False
-                break
-            
-            # Get player choice
-            choice_index = self.get_choice(choices)
-            
-            # Check for quit
-            if choice_index < 0:
-                # Offer to save before quitting
-                if not self.confirm("Do you really want to quit?"):
-                    continue
-                
-                self.running = False
-                break
-            
-            # Get current scene ID before handling choice
-            old_scene_id = self.current_scene_id
-            
-            # Process choice and clear screen
-            self.clear_screen()
-            result = engine.handle_choice(choice_index)
-            self.display_message(result)
-            
-            # Get new scene ID and update tracking
-            current_scene = engine.get_current_scene()
-            if current_scene:
-                new_scene_id = current_scene.scene_id
-                self.current_scene_id = new_scene_id
-                
-                # Only display scene text if we've moved to a new scene
-                if new_scene_id != old_scene_id:
-                    scene_text = engine.get_current_scene_text()
-                    # self.clear_screen()
-                    self.display_scene(scene_text)
-                else:
-                    # Display result from choice if not a scene transition
-                    self.display_message(result)
-            else:
-                # Just display the result
-                self.display_message(result)
-        
-        # Clean up
-        self.shutdown()
+        Args:
+            prompt: Message to show while waiting
+        """
+        input(f"\n{prompt} ")
 
 
 def create_text_interface() -> TextInterface:

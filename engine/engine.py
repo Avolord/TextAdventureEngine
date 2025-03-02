@@ -1,6 +1,7 @@
-# engine.py - Updated without save system
+# engine.py - Updated with enhanced descriptor system
 import re
 import os
+import inspect
 from typing import Dict, List, Any, Optional, Callable, Set, Tuple
 
 from .character import Character
@@ -9,7 +10,7 @@ from .game_state import GameStateManager
 from .parser import StoryParser
 from .descriptors import DescriptorManager
 from .character_manager import CharacterManager
-
+from .save_system import SaveSystem
 from .template_processor import TemplateProcessor, TemplateResult
 
 class TextAdventureEngine:
@@ -29,6 +30,7 @@ class TextAdventureEngine:
         self.stories_directory = None
         self.template_processor = TemplateProcessor()
         self._scene_cache = {}  # Cache for processed scenes
+        self.save_system = SaveSystem(self)
     
     def set_directories(self, stories_dir: str, templates_dir: str):
         """
@@ -158,11 +160,193 @@ class TextAdventureEngine:
             'register_action': self.game_state_manager.register_action,
         }
         
+        # Register descriptor-related functions
+        self._register_descriptor_functions(namespace)
+        
         try:
             # Execute the code within this namespace
             exec(functions_code, namespace)
         except Exception as e:
             print(f"Error registering functions: {e}")
+
+    def _register_descriptor_functions(self, namespace):
+        """
+        Register descriptor-related functions for use in story files.
+        
+        Args:
+            namespace: Namespace for function execution
+        """
+        # Add descriptor management functions to namespace
+        namespace['register_body_descriptor'] = self._create_body_descriptor_function
+        namespace['register_energy_descriptor'] = self._create_energy_descriptor_function
+        namespace['register_custom_descriptor'] = self._create_custom_descriptor_function
+        namespace['set_character_descriptor'] = self._set_character_descriptor
+        namespace['list_descriptors'] = self._list_available_descriptors
+        
+        # Register built-in actions for descriptor management
+        namespace['register_action']('change_body_descriptor', self._action_change_body_descriptor)
+        namespace['register_action']('change_energy_descriptor', self._action_change_energy_descriptor)
+    
+    def _create_body_descriptor_function(self, name, func):
+        """
+        Register a body descriptor function from a story file.
+        
+        Args:
+            name: Name of the descriptor
+            func: Descriptor function that takes stats and returns description
+        """
+        if not callable(func):
+            print(f"Error: Descriptor function '{name}' is not callable")
+            return False
+        
+        # Register with descriptor manager
+        self.descriptor_manager.register_body_descriptor(name, func)
+        return True
+    
+    def _create_energy_descriptor_function(self, name, func):
+        """
+        Register an energy descriptor function from a story file.
+        
+        Args:
+            name: Name of the descriptor
+            func: Descriptor function that takes stats and returns description
+        """
+        if not callable(func):
+            print(f"Error: Descriptor function '{name}' is not callable")
+            return False
+        
+        # Register with descriptor manager
+        self.descriptor_manager.register_energy_descriptor(name, func)
+        return True
+    
+    def _create_custom_descriptor_function(self, name, func):
+        """
+        Register a custom descriptor function from a story file.
+        
+        Args:
+            name: Name of the descriptor
+            func: Descriptor function that takes an object and returns description
+        """
+        if not callable(func):
+            print(f"Error: Descriptor function '{name}' is not callable")
+            return False
+        
+        # Register with descriptor manager
+        self.descriptor_manager.register_custom_descriptor(name, func)
+        return True
+    
+    def _set_character_descriptor(self, character_name, descriptor_type, descriptor_name):
+        """
+        Set which descriptor to use for a character.
+        
+        Args:
+            character_name: Name of the character
+            descriptor_type: Type of descriptor ('body' or 'energy')
+            descriptor_name: Name of the descriptor to use
+            
+        Returns:
+            bool: True if successful
+        """
+        # Get the character
+        character = self.game_state_manager.state.get_character(character_name)
+        if not character:
+            print(f"Error: Character '{character_name}' not found")
+            return False
+        
+        # Set descriptor based on type
+        if descriptor_type.lower() == 'body':
+            return self.descriptor_manager.set_character_body_descriptor(character_name, descriptor_name)
+        elif descriptor_type.lower() == 'energy':
+            return self.descriptor_manager.set_character_energy_descriptor(character_name, descriptor_name)
+        else:
+            print(f"Error: Unknown descriptor type '{descriptor_type}'")
+            return False
+    
+    def _list_available_descriptors(self, descriptor_type=None):
+        """
+        List all available descriptors.
+        
+        Args:
+            descriptor_type: Optional type to filter by
+            
+        Returns:
+            Dictionary of available descriptors
+        """
+        return self.descriptor_manager.get_available_descriptors(descriptor_type)
+    
+    def _action_change_body_descriptor(self, game_state):
+        """
+        Action to change the body descriptor for a character.
+        
+        Args:
+            game_state: Current game state
+            
+        Returns:
+            str: Result message
+        """
+        # Change descriptor for player
+        character_name = game_state.player.name
+        
+        # Get available body descriptors
+        descriptors = self.descriptor_manager.get_available_descriptors('body').get('body', set())
+        descriptors_list = list(descriptors)
+        
+        if not descriptors_list:
+            return "No body descriptors available."
+        
+        # Get current descriptor
+        current = self.descriptor_manager.get_character_body_descriptor_name(character_name)
+        
+        # Get next descriptor in rotation
+        try:
+            current_index = descriptors_list.index(current)
+            next_index = (current_index + 1) % len(descriptors_list)
+            next_descriptor = descriptors_list[next_index]
+        except ValueError:
+            # If current not found, use first descriptor
+            next_descriptor = descriptors_list[0]
+        
+        # Set the new descriptor
+        self.descriptor_manager.set_character_body_descriptor(character_name, next_descriptor)
+        
+        return f"Body description style changed to '{next_descriptor}'."
+    
+    def _action_change_energy_descriptor(self, game_state):
+        """
+        Action to change the energy descriptor for a character.
+        
+        Args:
+            game_state: Current game state
+            
+        Returns:
+            str: Result message
+        """
+        # Change descriptor for player
+        character_name = game_state.player.name
+        
+        # Get available energy descriptors
+        descriptors = self.descriptor_manager.get_available_descriptors('energy').get('energy', set())
+        descriptors_list = list(descriptors)
+        
+        if not descriptors_list:
+            return "No energy descriptors available."
+        
+        # Get current descriptor
+        current = self.descriptor_manager.get_character_energy_descriptor_name(character_name)
+        
+        # Get next descriptor in rotation
+        try:
+            current_index = descriptors_list.index(current)
+            next_index = (current_index + 1) % len(descriptors_list)
+            next_descriptor = descriptors_list[next_index]
+        except ValueError:
+            # If current not found, use first descriptor
+            next_descriptor = descriptors_list[0]
+        
+        # Set the new descriptor
+        self.descriptor_manager.set_character_energy_descriptor(character_name, next_descriptor)
+        
+        return f"Energy description style changed to '{next_descriptor}'."
     
     def transition_to_story(self, story_id: str, starting_scene: Optional[str] = None):
         """
@@ -283,10 +467,26 @@ class TextAdventureEngine:
                 # Add to game state
                 self.game_state_manager.state.add_npc(npc)
             
+            # Register undo action
+            self.game_state_manager.register_action("undo", self.undo_action)
+            
             return True
         except Exception as e:
             print(f"Error initializing game: {e}")
             return False
+    
+    def undo_action(self, game_state):
+        """
+        Undo the last action.
+        
+        Args:
+            game_state: Current game state
+            
+        Returns:
+            str: Result text
+        """
+        success, message = self.save_system.undo()
+        return message
         
     def get_current_scene_info(self):
         """
@@ -373,10 +573,21 @@ class TextAdventureEngine:
             'player': game_state.player,
             'game': game_state,
             'var': lambda name, default=None: game_state.get_variable(name, default),
-            'describe': lambda char_name: self.descriptor_manager.describe_character(
-                game_state.get_character(char_name)
+            'describe': lambda char_name, body_type=None, energy_type=None: self.descriptor_manager.describe_character(
+                game_state.get_character(char_name), body_type, energy_type
             ),
             'has_completed': lambda event: game_state.is_event_completed(event),
+            # Add descriptor-related functions
+            'set_descriptor': lambda char_name, desc_type, desc_name: self._set_character_descriptor(
+                char_name, desc_type, desc_name
+            ),
+            'get_body_desc': lambda char_name, desc_type=None: self.descriptor_manager.get_body_description(
+                game_state.get_character(char_name), desc_type
+            ),
+            'get_energy_desc': lambda char_name, desc_type=None: self.descriptor_manager.get_energy_description(
+                game_state.get_character(char_name), desc_type
+            ),
+            'list_descriptors': lambda desc_type=None: self.descriptor_manager.get_available_descriptors(desc_type)
         }
         
         # Add NPCs to context
@@ -502,6 +713,9 @@ class TextAdventureEngine:
         # Get the selected choice
         choice = available_choices[choice_index]
         
+        # Save the current state for undo before making changes
+        self.save_system.push_state()
+        
         # Clear the scene cache when making a choice
         self._scene_cache = {}
         
@@ -524,7 +738,7 @@ class TextAdventureEngine:
             
             # If no result text was returned, show the new scene text
             if not result:
-                result = ""#self.get_current_scene_text()
+                result = ""  # self.get_current_scene_text()
         
         return result or "You made your choice."
     
@@ -554,7 +768,61 @@ class TextAdventureEngine:
             return (
                 "Available commands:\n"
                 "- help: Show this help message\n"
+                "- undo: Undo the last action\n"
+                "- save [name]: Save the game with optional name\n"
+                "- load [name]: Load a saved game\n"
+                "- saves: List all saved games\n"
+                "- delete [name]: Delete a saved game\n"
+                "- quit: Exit the game\n"
             )
+        
+        # Undo command
+        elif cmd == "undo":
+            success, message = self.save_system.undo()
+            return message
+        
+        # Save command
+        elif cmd == "save":
+            # Get save name from command or use default
+            save_name = parts[1] if len(parts) > 1 else f"autosave_{self.game_state_manager.state.day}"
+            success, message = self.save_system.save_game(save_name)
+            return message
+        
+        # Load command
+        elif cmd == "load":
+            if len(parts) > 1:
+                # Load specific save
+                save_name = parts[1]
+                success, message = self.save_system.load_game(save_name)
+                return message
+            else:
+                # Display list of saves
+                saves = self.save_system.list_saves()
+                if not saves:
+                    return "No saved games found."
+                
+                save_list = "\n".join([f"{i+1}. {save['name']} ({save['timestamp']}, {save['title']})" 
+                                    for i, save in enumerate(saves)])
+                return f"Available saves:\n{save_list}\nUse 'load [name]' to load a specific save."
+        
+        # List saves command
+        elif cmd in ["saves", "list"]:
+            saves = self.save_system.list_saves()
+            if not saves:
+                return "No saved games found."
+            
+            save_list = "\n".join([f"{i+1}. {save['name']} ({save['timestamp']}, {save['title']})" 
+                                for i, save in enumerate(saves)])
+            return f"Available saves:\n{save_list}"
+        
+        # Delete save command
+        elif cmd == "delete":
+            if len(parts) > 1:
+                save_name = parts[1]
+                success, message = self.save_system.delete_save(save_name)
+                return message
+            else:
+                return "Please specify a save name to delete."
         
         # Unknown command
         else:
