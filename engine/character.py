@@ -116,3 +116,28 @@ class Character:
             desc_parts.append(f"({self.stats.height}cm, {self.stats.weight}kg)")
         
         return " ".join(desc_parts)
+    
+    def to_dict(self):
+        """Convert to a dictionary for serialization."""
+        return {
+            'name': self.name,
+            'is_player': self.is_player,
+            'stats': self.stats.to_dict(),
+            'inventory': self.inventory.copy(),
+            'relationships': self.relationships.copy()
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Create from a dictionary."""
+        # Create character with basic properties
+        char = cls(data['name'], data['is_player'])
+        
+        # Load stats using DynamicStats.from_dict
+        char.stats = DynamicStats.from_dict(data['stats'])
+        
+        # Copy other properties
+        char.inventory = data['inventory'].copy()
+        char.relationships = data['relationships'].copy()
+        
+        return char

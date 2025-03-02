@@ -1,19 +1,14 @@
 # rich_interface.py - Rich-based enhanced frontend implementation
-import os
-import sys
 import time
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Dict, Any
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.layout import Layout
 from rich.table import Table
 from rich.markdown import Markdown
 from rich.text import Text
-from rich.style import Style
 from rich.theme import Theme
 from rich.prompt import Prompt, Confirm
-from rich.spinner import Spinner
 
 from engine.interface import GameInterface
 
@@ -25,6 +20,8 @@ class RichInterface(GameInterface):
     """
     
     def __init__(self):
+        super().__init__()
+        
         # Create theme for consistent styling
         custom_theme = Theme({
             "scene": "bold cyan",
@@ -38,34 +35,12 @@ class RichInterface(GameInterface):
         })
         
         self.console = Console(theme=custom_theme, highlight=False)
-        self.engine = None
-        self.running = False
-        self.current_scene_id = None  # Track current scene to avoid duplication
         
         # Get terminal size
         self.width = self.console.width
         self.height = self.console.height
     
-    def initialize(self, engine) -> bool:
-        """
-        Initialize the rich interface.
-        
-        Args:
-            engine: Game engine instance
-            
-        Returns:
-            bool: True if initialization was successful
-        """
-        self.engine = engine
-        self.running = True
-        return True
-    
-    def shutdown(self) -> None:
-        """Clean up resources when shutting down the interface."""
-        self.running = False
-        self.display_message("[success]Thank you for playing![/success]")
-    
-    def display_message(self, message: str) -> None:
+    def _display_message(self, message: str) -> None:
         """
         Display a message to the user.
         
@@ -75,7 +50,7 @@ class RichInterface(GameInterface):
         if message:  # Only display if there's a message
             self.console.print(message)
     
-    def display_scene(self, scene_text: str) -> None:
+    def _display_scene(self, scene_text: str) -> None:
         """
         Display a scene to the user using Rich formatting.
         
@@ -133,7 +108,7 @@ class RichInterface(GameInterface):
         formatted_stats += "[/stats]"
         return formatted_stats
     
-    def display_choices(self, choices: List[str]) -> None:
+    def _display_choices(self, choices: List[str]) -> None:
         """
         Display choices to the user using a Rich Table.
         
@@ -155,22 +130,17 @@ class RichInterface(GameInterface):
         self.console.print(table)
         
         # Add command help
-        commands_text = Text("Special commands: ", style="command")
-        commands_text.append("save", style="command")
-        commands_text.append(", ")
-        commands_text.append("load", style="command")
-        commands_text.append(", ")
-        commands_text.append("saves", style="command")
-        commands_text.append(", ")
-        commands_text.append("restart", style="command")
-        commands_text.append(", ")
-        commands_text.append("help", style="command")
-        commands_text.append(", ")
-        commands_text.append("quit", style="command")
+        commands_text = Text("\nSpecial commands: ", style="command")
+        commands = ["help", "undo", "save", "load", "saves", "delete", "restart", "quit"]
+        
+        for i, cmd in enumerate(commands):
+            commands_text.append(cmd, style="command")
+            if i < len(commands) - 1:
+                commands_text.append(", ")
         
         self.console.print(commands_text)
     
-    def get_user_input(self, prompt: str = "") -> str:
+    def _get_user_input(self, prompt: str = "") -> str:
         """
         Get input from the user using Rich Prompt.
         
@@ -185,90 +155,7 @@ class RichInterface(GameInterface):
             
         return Prompt.ask(prompt)
     
-    def get_choice(self, choices: List[str]) -> int:
-        """
-        Get a choice from the user.
-        
-        Args:
-            choices: List of choice texts
-            
-        Returns:
-            Index of chosen choice (-1 for invalid/quit)
-        """
-        if not choices:
-            return -1
-        
-        self.display_choices(choices)
-        
-        while True:
-            user_input = self.get_user_input().strip()
-            
-            # Check for special commands
-            if user_input.lower() in ["quit", "exit", "q"]:
-                return -1
-            
-            # Check for other special commands
-            if user_input.lower() in ["save", "load", "saves", "list", "help", "restart"] or \
-               user_input.lower().startswith(("save ", "load ")):
-                result = self.engine.process_text_command(user_input)
-                self.console.print(Panel(result, border_style="info"))
-                self.display_choices(choices)
-                continue
-            
-            # Try to parse as a choice number
-            try:
-                choice_num = int(user_input)
-                if 1 <= choice_num <= len(choices):
-                    return choice_num - 1
-                else:
-                    self.console.print(f"[warning]Please enter a number between 1 and {len(choices)}.[/warning]")
-            except ValueError:
-                self.console.print("[warning]Please enter a number or command.[/warning]")
-    
-    def select_from_list(self, items: List[str], prompt: str) -> int:
-        """
-        Let the user select an item from a list using a Rich Table.
-        
-        Args:
-            items: List of items
-            prompt: Prompt to display
-            
-        Returns:
-            Index of selected item (-1 for invalid/cancel)
-        """
-        if not items:
-            return -1
-        
-        # Display options in a table
-        table = Table(show_header=False, box=None, padding=(0, 1, 0, 1))
-        table.add_column("Number", style="choice", justify="right")
-        table.add_column("Item", style="choice")
-        
-        for i, item in enumerate(items, 1):
-            table.add_row(f"{i}.", item)
-        
-        # Show prompt and table
-        self.console.print(Panel(prompt, border_style="info"))
-        self.console.print(table)
-        
-        while True:
-            try:
-                user_input = self.get_user_input("Enter your choice")
-                
-                # Check for quit/cancel
-                if user_input.lower() in ["quit", "exit", "cancel", "q"]:
-                    return -1
-                
-                # Parse as number
-                choice_num = int(user_input)
-                if 1 <= choice_num <= len(items):
-                    return choice_num - 1
-                else:
-                    self.console.print(f"[warning]Please enter a number between 1 and {len(items)}.[/warning]")
-            except ValueError:
-                self.console.print("[warning]Please enter a number.[/warning]")
-    
-    def confirm(self, message: str) -> bool:
+    def _confirm(self, message: str) -> bool:
         """
         Ask the user for confirmation using Rich Confirm.
         
@@ -280,7 +167,7 @@ class RichInterface(GameInterface):
         """
         return Confirm.ask(message)
     
-    def display_title(self, title: str) -> None:
+    def _display_title(self, title: str) -> None:
         """
         Display a title using Rich styling.
         
@@ -296,90 +183,130 @@ class RichInterface(GameInterface):
         
         self.console.print(title_panel)
     
-    def clear_screen(self) -> None:
+    def _clear_screen(self) -> None:
         """Clear the screen."""
         self.console.clear()
+    
+    def _display_saves(self, saves: List[Dict[str, Any]]) -> None:
+        """
+        Display a list of saves using a Rich Table.
+        
+        Args:
+            saves: List of save info dictionaries
+        """
+        if not saves:
+            self.console.print("[warning]No saved games found.[/warning]")
+            return
+        
+        # Create a table for saves
+        table = Table(title="Saved Games", box=True)
+        table.add_column("Name", style="info")
+        table.add_column("Story", style="info")
+        table.add_column("Timestamp", style="info")
+        
+        for save in saves:
+            table.add_row(
+                save['name'],
+                save['title'],
+                save['timestamp']
+            )
+        
+        self.console.print(table)
+        self.console.print("\nUse [command]load [name][/command] to load a specific save.")
     
     def show_transition_effect(self) -> None:
         """Show a brief transition effect."""
         with self.console.status("", spinner="dots"):
             time.sleep(0.5)  # Brief pause for effect
     
-    def game_loop(self, engine) -> None:
+    # Override process_command_result to add styling
+    def process_command_result(self, command: str, result: str, refresh_display: bool = True) -> None:
         """
-        Run the main game loop with Rich enhancements.
+        Process and display the result of a command with styling.
         
         Args:
-            engine: Game engine instance
+            command: Original command
+            result: Command result text
+            refresh_display: Whether to refresh the full display
         """
-        self.engine = engine
-        self.running = True
+        # Display command result with appropriate styling
+        cmd_base = command.split()[0].lower() if command else ""
+        
+        if cmd_base == "save":
+            self.console.print(Panel(result, border_style="success"))
+        elif cmd_base in ["load", "undo"]:
+            self.console.print(Panel(result, border_style="info"))
+        elif cmd_base == "delete":
+            self.console.print(Panel(result, border_style="warning"))
+        else:
+            self.console.print(Panel(result, border_style="info"))
+        
+        # Refresh display if needed
+        if refresh_display and self.display_needs_refresh:
+            self.refresh_display()
+    
+    def _wait_for_input(self, prompt: str = "Press enter to continue...") -> None:
+        """
+        Wait for the user to press enter to continue with Rich styling.
+        
+        Args:
+            prompt: Message to show while waiting
+        """
+        self.console.print(f"\n[command]{prompt}[/command]", end="")
+        input(" ")
+    
+    # Override game_loop to add transition effects
+    def game_loop(self) -> None:
+        """Run the main game loop with Rich enhancements."""
+        if not self.engine:
+            self._display_message("[warning]Error: No game engine initialized.[/warning]")
+            return
         
         # Display welcome message
-        self.clear_screen()
-        self.display_title(f"Welcome to {engine.title}")
+        self._clear_screen()
+        self._display_title(f"Welcome to {self.engine.title}")
         
         # Brief pause for effect
         self.show_transition_effect()
-        self.clear_screen()
         
-        # Initialize scene tracking
-        current_scene = engine.get_current_scene()
-        if current_scene:
-            self.current_scene_id = current_scene.scene_id
-            
-            # Display initial scene
-            scene_text = engine.get_current_scene_text()
-            self.display_scene(scene_text)
+        # Display initial scene
+        self.refresh_display()
         
         while self.running:
-            # Get available choices
-            choices = engine.get_choice_texts()
+            # Get player choice (handling special commands)
+            choice_index = self.get_choice()
             
-            # If no choices, assume end of game
-            if not choices:
-                self.console.print(Panel("[success]THE END[/success]", border_style="success"))
-                self.running = False
-                break
-            
-            # Get player choice
-            choice_index = self.get_choice(choices)
-            
-            # Check for quit
+            # Check for quit or invalid choice
             if choice_index < 0:
-                # Offer to save before quitting
-                if not self.confirm("[warning]Do you really want to quit?[/warning]"):
-                    continue
-                
-                self.running = False
-                break
+                if not self.running:  # Was quit command
+                    break
+                continue  # Invalid choice or handled command
             
-            # Get current scene ID before handling choice
-            old_scene_id = self.current_scene_id
-            
-            # Show brief transition
+            # Show brief transition effect
             self.show_transition_effect()
             
-            # Clear screen and process choice
-            self.clear_screen()
-            result = engine.handle_choice(choice_index)
+            # Clear screen before showing result
+            self._clear_screen()
             
-            # Get new scene ID and update tracking
-            current_scene = engine.get_current_scene()
-            if current_scene:
-                new_scene_id = current_scene.scene_id
-                self.current_scene_id = new_scene_id
-                
-                # Only display scene text if we've moved to a new scene
-                if new_scene_id != old_scene_id:
-                    scene_text = engine.get_current_scene_text()
-                    self.display_scene(scene_text)
-                else:
-                    # Display result from choice if not a scene transition
-                    self.display_message(result)
-            else:
-                # Just display the result
-                self.display_message(result)
+            # Mark display as needing refresh
+            self.display_needs_refresh = True
+            
+            # Handle the choice and get result
+            result = self.engine.handle_choice(choice_index)
+            
+            # Show result and wait for user to continue
+            if result and result != "You made your choice.":
+                # Display result in a styled panel
+                self.console.print(Panel(
+                    result,
+                    title="Result",
+                    border_style="info"
+                ))
+                self._wait_for_input()
+            
+            # Now refresh display with the new scene
+            self._clear_screen()
+            self.refresh_display()
         
         # Clean up
         self.shutdown()

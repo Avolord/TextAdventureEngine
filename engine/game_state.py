@@ -1,6 +1,7 @@
 # game_state.py - Game state tracking
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Set, Any, Optional, List
+import json
 
 from .character import Character
 
@@ -80,6 +81,70 @@ class GameState:
             character.update_stats(energy=character.stats.energy - 15)
         elif sleep_hours > 8:
             character.update_stats(energy=min(100, character.stats.energy + 10))
+            
+    def to_dict(self):
+        """Convert to a dictionary for serialization."""
+        return {
+            'current_scene_id': self.current_scene_id,
+            'player': self.player.to_dict(),
+            'npcs': {name: npc.to_dict() for name, npc in self.npcs.items()},
+            'visited_scenes': list(self.visited_scenes),
+            'completed_events': list(self.completed_events),
+            'variables': self._serialize_variables(),
+            'day': self.day,
+            'time_of_day': self.time_of_day
+        }
+
+    def _serialize_variables(self):
+        """
+        Serialize variables to JSON-compatible format.
+        Handles basic types that can be directly serialized.
+        """
+        serialized = {}
+        for k, v in self.variables.items():
+            # Handle basic JSON-compatible types
+            if isinstance(v, (str, int, float, bool, type(None))):
+                serialized[k] = v
+            # Handle lists and dicts if they contain basic types
+            elif isinstance(v, (list, dict)):
+                try:
+                    # Test if JSON serializable
+                    json.dumps(v)
+                    serialized[k] = v
+                except (TypeError, OverflowError):
+                    # Skip non-serializable complex objects
+                    pass
+            # Skip other non-serializable types
+        return serialized
+
+    @classmethod
+    def from_dict(cls, data):
+        """Create from a dictionary."""
+        from .character import Character
+        
+        # Create player character
+        player = Character.from_dict(data['player'])
+        
+        # Create game state with player and current scene
+        state = cls(data['current_scene_id'], player)
+        
+        # Restore simple properties
+        state.day = data['day']
+        state.time_of_day = data['time_of_day']
+        
+        # Restore collections (convert lists back to sets)
+        state.visited_scenes = set(data['visited_scenes'])
+        state.completed_events = set(data['completed_events'])
+        
+        # Restore variables dictionary
+        state.variables = data['variables'].copy()
+        
+        # Restore NPCs
+        for name, npc_data in data['npcs'].items():
+            npc = Character.from_dict(npc_data)
+            state.npcs[name] = npc
+        
+        return state
 
 
 class GameStateManager:
